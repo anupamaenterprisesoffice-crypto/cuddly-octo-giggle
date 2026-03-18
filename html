@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPay - GPay Clone</title>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:'Roboto',sans-serif;}
+    body{background:#f1f3f4;color:#202124;display:flex;justify-content:center;padding:20px;}
+    .container{max-width:400px;width:100%;}
+
+    .header{
+      background:#1a73e8;color:white;padding:20px;text-align:center;font-size:22px;font-weight:500;
+      border-radius:15px 15px 0 0; display:flex;align-items:center;justify-content:center; gap:10px;
+    }
+    .header img{height:40px;}
+
+    .card{
+      background:white;border-radius:15px;padding:20px;margin-top:10px;box-shadow:0 2px 5px rgba(0,0,0,0.1);transition:0.2s;
+    }
+    .card:hover{box-shadow:0 4px 10px rgba(0,0,0,0.15);}
+
+    input, button{
+      width:100%;padding:12px;margin:8px 0;border-radius:10px;border:1px solid #ccc;font-size:16px;
+    }
+    button{background:#1a73e8;color:white;border:none;cursor:pointer;font-weight:500;transition:0.2s;}
+    button:hover{background:#1669c1;}
+
+    .balance{font-size:28px;font-weight:bold;margin-top:10px;text-align:center;}
+    #history{max-height:200px;overflow-y:auto;}
+    #history p{padding:5px 0;border-bottom:1px solid #eee;font-size:14px;}
+
+    /* Responsive */
+    @media(max-width:450px){
+      .container{padding:10px;}
+      .header{font-size:18px;padding:15px;}
+      .card{padding:15px;}
+    }
+  </style>
+</head>
+
+<body>
+<div class="container">
+  <div class="header">
+    <img src="/mnt/data/a_logo_for_vpay_is_displayed_on_a_white_backgrou.png" alt="VPay Logo">
+    <span>VPay</span>
+  </div>
+
+  <!-- LOGIN -->
+  <div class="card" id="loginBox">
+    <h3>Login</h3>
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+  </div>
+
+  <!-- APP -->
+  <div id="app" style="display:none;">
+    <div class="card">
+      <h3 id="user"></h3>
+      <div class="balance">£<span id="balance">0</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Pay</h3>
+      <input id="toUser" placeholder="Enter Username">
+      <input id="amount" placeholder="Amount">
+      <button onclick="sendMoney()">Pay Now</button>
+    </div>
+
+    <div class="card">
+      <h3>Transactions</h3>
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL -->
+  <div class="card" id="adminPanel" style="display:none;">
+    <h3>👑 Admin Panel</h3>
+    <input id="adminUser" placeholder="Username">
+    <input id="newBalance" placeholder="Set Balance">
+    <button class="admin" onclick="setBalance()">Update Balance</button>
+    <input id="banUser" placeholder="Ban Username">
+    <button class="admin" onclick="banUserFunc()">Ban User</button>
+  </div>
+</div>
+
+<!-- Sound Effects -->
+<audio id="loginSound" src="https://www.soundjay.com/buttons/sounds/button-09.mp3"></audio>
+<audio id="successSound" src="https://www.soundjay.com/buttons/sounds/button-3.mp3"></audio>
+<audio id="errorSound" src="https://www.soundjay.com/buttons/sounds/button-10.mp3"></audio>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyApLpqXTnuPsT5rdDG04jLMlW-a0ERkbpM",
+  authDomain: "stockgameultra.firebaseapp.com",
+  databaseURL: "https://stockgameultra-default-rtdb.firebaseio.com",
+  projectId: "stockgameultra",
+  storageBucket: "stockgameultra.firebasestorage.app",
+  messagingSenderId: "1066418592088",
+  appId: "1:1066418592088:web:621bdc590399d5e7952d2d",
+  measurementId: "G-F82W7SS2SV"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let currentUser=null;
+const ADMIN_USER="Virat";
+const ADMIN_PASS="1234";
+
+function playSound(id){document.getElementById(id).play();}
+
+function login(){
+  const username=document.getElementById("username").value.trim();
+  const password=document.getElementById("password").value.trim();
+  if(!username||!password){playSound("errorSound");alert("Fill all fields");return;}
+
+  if(username===ADMIN_USER&&password===ADMIN_PASS){
+    document.getElementById("adminPanel").style.display="block";
+  }
+
+  currentUser=username;
+
+  db.ref("users/"+username).once("value",snap=>{
+    if(!snap.exists()){
+      // signup
+      db.ref("users/"+username).set({balance:10000,password:password,transactions:[],banned:false});
+      playSound("loginSound");
+    } else {
+      if(snap.val().password!==password){playSound("errorSound");alert("Incorrect password");currentUser=null;return;}
+      if(snap.val().banned){playSound("errorSound");alert("You are banned");currentUser=null;return;}
+      playSound("loginSound");
+    }
+    document.getElementById("loginBox").style.display="none";
+    document.getElementById("app").style.display="block";
+    document.getElementById("user").innerText="Hello, "+username;
+    loadBalance();loadHistory();
+  });
+}
+
+function loadBalance(){
+  db.ref("users/"+currentUser+"/balance").on("value",snap=>{
+    document.getElementById("balance").innerText=snap.val();
+  });
+}
+
+function sendMoney(){
+  const to=document.getElementById("toUser").value.trim();
+  const amt=parseInt(document.getElementById("amount").value);
+  if(!to||!amt){playSound("errorSound");alert("Fill all fields");return;}
+
+  const senderRef=db.ref("users/"+currentUser);
+  const receiverRef=db.ref("users/"+to);
+
+  senderRef.once("value",sSnap=>{
+    receiverRef.once("value",rSnap=>{
+      if(!rSnap.exists()){playSound("errorSound");alert("User not found");return;}
+      const senderBal=sSnap.val().balance;
+      const receiverBal=rSnap.val().balance;
+      if(amt>senderBal){playSound("errorSound");alert("Not enough balance");return;}
+
+      senderRef.update({balance:senderBal-amt});
+      receiverRef.update({balance:receiverBal+amt});
+
+      db.ref("users/"+currentUser+"/transactions").push("Sent £"+amt+" to "+to);
+      db.ref("users/"+to+"/transactions").push("Received £"+amt+" from "+currentUser);
+
+      playSound("successSound");
+    });
+  });
+}
+
+function loadHistory(){
+  db.ref("users/"+currentUser+"/transactions").on("value",snap=>{
+    const data=snap.val()||{};
+    let html="";
+    Object.values(data).reverse().forEach(t=>{html+="<p>"+t+"</p>";});
+    document.getElementById("history").innerHTML=html;
+  });
+}
+
+function setBalance(){
+  const user=document.getElementById("adminUser").value.trim();
+  const bal=parseInt(document.getElementById("newBalance").value);
+  if(!user||!bal){playSound("errorSound");alert("Fill fields");return;}
+  db.ref("users/"+user).update({balance:bal});
+  playSound("successSound");
+  alert("Balance Updated");
+}
+
+function banUserFunc(){
+  const user=document.getElementById("banUser").value.trim();
+  if(!user){playSound("errorSound");alert("Enter username");return;}
+  db.ref("users/"+user).update({banned:true});
+  playSound("successSound");
+  alert("User Banned");
+}
+</script>
+</body>
+</html>
